@@ -138,15 +138,21 @@ def get_ds(config):
     tgt_lang = config["lang_tgt"]
     seq_len = config["seq_len"]
     
+    # print(ds_raw[0], type(ds_raw), type(ds_raw[0]))
+    
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, src_lang)
     tokenizer_tgt = get_or_build_tokenizer(config, ds_raw, tgt_lang)
+    
+    # ds_raw = sorted(ds_raw, key=lambda x: len(tokenizer_src.encode(x['translation'][src_lang]).ids))
+    # print(ds_raw[0], type(ds_raw), type(ds_raw[0]))
     
     train_ds_size = int(0.9 * len(ds_raw))
     val_ds_size = len(ds_raw) - train_ds_size
     train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
-    
+
     train_ds = BillingualDataset(train_ds_raw, tokenizer_src, tokenizer_tgt, src_lang, tgt_lang, seq_len)
     val_ds = BillingualDataset(val_ds_raw, tokenizer_src, tokenizer_tgt, src_lang, tgt_lang, seq_len)
+    
     
     max_len_src = 0
     max_len_tgt = 0
@@ -160,11 +166,81 @@ def get_ds(config):
     print(f"Max length of the source sentence : {max_len_src}")
     print(f"Max length of the source target : {max_len_tgt}")
     
-    train_dataloader = DataLoader(train_ds, batch_size = config["batch_size"], shuffle = True)
+    train_dataloader = DataLoader(train_ds, batch_size = config["batch_size"], shuffle = True,  collate_fn=collate_func)
     val_dataloader = DataLoader(val_ds, batch_size = 1, shuffle = True)
     
     return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
 
+def collate_func(batch):
+    max_encoder_len = 0
+    max_decoder_len = 0
+    for b  in batch:
+        max_encoder_len = max(max_encoder_len, len(b["encoder_input_without_padding"]))
+        max_decoder_len = max(max_decoder_len, len(b["decoder_input_without_padding"] ))
+    
+    seq_len_this_batch = max(max_encoder_len, max_decoder_len) + 3
+    
+    for b in batch:
+        enc_num_padding_tokens = seq_len_this_batch - len(b["encoder_input_without_padding"] )
+        dec_num_padding_tokens = seq_len_this_batch - len(b["decoder_input_without_padding"] )
+
+        encoder_input = torch.cat(
+            [
+                b["encoder_input_without_padding"],
+                torch.tensor([b["pad_token"]]*enc_num_padding_tokens, dtype = torch.int64)
+            ],
+            dim=0,
+            
+        )
+        decoder_input = torch.cat(
+            [
+                b["decoder_input_without_padding"],
+                torch.tensor([b["pad_token"]]*dec_num_padding_tokens, dtype = torch.int64)
+            ],
+            dim=0
+        )
+        label = torch.cat(
+            [  
+                b["label_without_padding"],
+                torch.tensor([b["pad_token"]]*dec_num_padding_tokens, dtype = torch.int64)
+            ],
+            dim=0
+        )
+        b["encoder_input"] = encoder_input
+        b["decoder_input"] = decoder_input
+        b["label"] = label
+        b["encoder_mask"] =  ((encoder_input != b["pad_token"]).unsqueeze(0)).unsqueeze(0).unsqueeze(0).int()
+        b["decoder_mask"] = (decoder_input != b["pad_token"]).unsqueeze(0).int() & casual_mask(decoder_input.size(0)).unsqueeze(0)
+
+    
+    encoder_inputs = []
+    decoder_inputs = []
+    encoder_masks = []
+    decoder_masks = []
+    labels = []
+    src_texts = []
+    tgt_texts = []
+    
+    for b in batch:
+        encoder_inputs.append(b["encoder_input"])
+        decoder_inputs.append(b["decoder_input"])
+        encoder_masks.append(b["encoder_mask"])
+        decoder_masks.append(b["decoder_mask"])
+        labels.append(b["label"])
+        src_texts.append(b["src_text"])
+        tgt_texts.append(b["tgt_text"])
+    
+    return {
+        "encoder_input": torch.vstack(encoder_inputs),
+        "decoder_input": torch.vstack(decoder_inputs),
+        "encoder_mask": torch.vstack(encoder_masks),
+        "decoder_mask": torch.vstack(decoder_masks),
+        "label": torch.vstack(labels),
+        "src_text": src_texts,
+        "tgt_text": tgt_texts
+    }
+    
+    
 
 def get_model(config, src_vocab_size, tgt_vocab_size):
     model = build_transformer(src_vocab_size, tgt_vocab_size, config["seq_len"], config["seq_len"], d_model=config['d_model'])
@@ -250,11 +326,3 @@ def train_model(config):
             },
             model_filename
         )
-        
-            
-if __name__ == "__main__":
-    warnings.filterwarnings("ignore")
-    config = get_config()
-    train_model(config)
-    
-    
