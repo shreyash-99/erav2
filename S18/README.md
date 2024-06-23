@@ -42,7 +42,7 @@ This is implemented to reach a lower accuracy faster, it doesnt help in increasi
 2. Reached a loss of 1.81 in the 18th epoch.
 3. [Python notebook - Dynamic Batching + One Cycle Policy + Automatic Mixed Precision](/S18/S18_DB_AMP_OCP.ipynb)
 
-#### Logs
+### Logs
 Processing Epoch 00: [04:30<00:00,  4.48it/s, recent loss=6.145, avg loss=6.899, lr=[0.00020786939313984168] <br>
 Processing Epoch 01: [04:29<00:00,  4.50it/s, recent loss=5.415, avg loss=5.713, lr=[0.0004059020448548813]]<br>
 Processing Epoch 02: [04:25<00:00,  4.57it/s, recent loss=5.420, avg loss=5.291, lr=[0.0006039346965699209]]<br>
